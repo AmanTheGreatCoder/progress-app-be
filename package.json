@@ -1,0 +1,32 @@
+{
+	"name": "progress-app-be",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "nodemon --watch . --ext ts --exec tsx index.ts",
+		"prisma:migrate": "prisma migrate dev",
+		"prisma:generate": "prisma generate"
+	},
+	"dependencies": {
+		"@notionhq/client": "2.2.15",
+		"@prisma/adapter-pg": "^7.8.0",
+		"@prisma/client": "^7.8.0",
+		"cors": "^2.8.6",
+		"dotenv": "^17.4.2",
+		"express": "^5.2.1",
+		"pg": "^8.20.0"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/cors": "^2.8.19",
+		"@types/express": "^5.0.6",
+		"@types/node": "^24.12.3",
+		"@types/pg": "^8.20.0",
+		"eslint": "^10.3.0",
+		"eslint-plugin-react-hooks": "^7.1.1",
+		"nodemon": "^3.1.14",
+		"prisma": "^7.8.0",
+		"tsx": "^4.22.0"
+	}
+}

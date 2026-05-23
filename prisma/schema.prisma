@@ -1,0 +1,45 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Task {
+  id           String   @id
+  name         String
+  description  String   @default("") // task description / notes from Notion
+  priority     String   @default("None")
+  tags         String   @default("") // comma-separated e.g. "Health,Work"
+  date         String
+  completed    Boolean  @default(false)
+  points       Int      @default(0)
+  notionUrl    String?
+  lastSyncedAt DateTime @default(now()) @updatedAt
+}
+
+model Goal {
+  id              String    @id @default(uuid())
+  title           String
+  startDate       String
+  deadline        String
+  category        String
+  targetFrequency Int
+  priority        String
+  archived        Boolean   @default(false)
+  linkedTaskIds   String    @default("") // comma-separated task IDs (legacy)
+  linkedTaskNames String    @default("") // comma-separated task names for recurring match
+  targetCount     Int       @default(0)  // total sessions to achieve goal (0 = use frequency)
+  createdAt       String    // YYYY-MM-DD
+  logs            GoalLog[]
+}
+
+model GoalLog {
+  id            String @id @default(uuid())
+  goalId        String
+  date          String
+  effortMinutes Int
+  notes         String
+  goal          Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+}
