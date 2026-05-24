@@ -124,7 +124,7 @@ app.get('/api/ticktick/callback', async (req, res) => {
       }
     });
 
-    res.redirect('http://localhost:5173');
+    res.redirect(process.env.FRONTEND_URL);
   } catch (err: any) {
     let errDetails = 'Unknown Error';
     if (err.response) {
