@@ -27,7 +27,7 @@ const DATABASE_ID = process.env.NOTION_DATABASE_ID!;
 
 const TICKTICK_CLIENT_ID = process.env.TICKTICK_CLIENT_ID!;
 const TICKTICK_CLIENT_SECRET = process.env.TICKTICK_CLIENT_SECRET!;
-const TICKTICK_REDIRECT_URI = process.env.TICKTICK_REDIRECT_URI;
+const TICKTICK_REDIRECT_URI = process.env.TICKTICK_REDIRECT_URI!;
 
 async function getValidAccessToken(): Promise<string> {
   const auth = await prisma.tickTickAuth.findUnique({ where: { id: 'singleton' } });
