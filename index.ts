@@ -5,7 +5,7 @@ import axios from 'axios';
 import https from 'https';
 import { Client } from '@notionhq/client';
 import { PrismaClient } from '@prisma/client';
-import { aggregateDailyScores, calculateStreak, calculateTagBreakdown, computeGoalProgress, calculateTaskScore } from './utils';
+import { aggregateDailyScores, calculateStreak, calculateTagBreakdown, computeGoalProgress, calculateTaskScore } from './utils.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 
@@ -160,7 +160,7 @@ app.get('/api/dashboard', async (req, res) => {
     const sortedDays = Object.entries(dailyScores)
       .sort(([a], [b]) => b.localeCompare(a))
       .slice(0, 7);
-    const maxDayScore = Math.max(...sortedDays.map(([, s]) => s), 1);
+    const maxDayScore = Math.max(...sortedDays.map(([, s]) => Number(s)), 1);
 
     res.json({
       dailyScores,
