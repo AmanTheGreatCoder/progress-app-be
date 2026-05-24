@@ -66,6 +66,7 @@ async function getValidAccessToken(): Promise<string> {
 app.use(cors({
   origin: [
     'http://localhost:5173',
+    'https://progress-app-fe.vercel.app',
   ],
   credentials: true
 }));
@@ -110,16 +111,16 @@ app.get('/api/ticktick/callback', async (req, res) => {
 
     await prisma.tickTickAuth.upsert({
       where: { id: 'singleton' },
-      update: { 
-        accessToken: data.access_token, 
-        refreshToken: data.refresh_token || '', 
-        expiresAt 
+      update: {
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || '',
+        expiresAt
       },
-      create: { 
-        id: 'singleton', 
-        accessToken: data.access_token, 
-        refreshToken: data.refresh_token || '', 
-        expiresAt 
+      create: {
+        id: 'singleton',
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token || '',
+        expiresAt
       }
     });
 
@@ -370,7 +371,7 @@ app.post('/api/sync', async (_req, res) => {
     try {
       const now = new Date();
       const from = new Date(now.getFullYear() - 2, 0, 1).toISOString();
-      const to   = new Date(now.getFullYear() + 1, 11, 31).toISOString();
+      const to = new Date(now.getFullYear() + 1, 11, 31).toISOString();
       const r = await axios.post(
         'https://api.ticktick.com/open/v1/task/completed',
         { from, to, limit: 1000 },
@@ -389,26 +390,26 @@ app.post('/api/sync', async (_req, res) => {
     const priorityMap: Record<number, string> = { 0: 'None', 1: 'Low', 3: 'Medium', 5: 'High' };
 
     for (const t of allTasks) {
-      const name        = t.title || 'Untitled';
+      const name = t.title || 'Untitled';
       const description = t.content || '';
-      const priority    = priorityMap[t.priority as number] || 'None';
-      const tags        = (t.tags || []).join(',');
-      const completed   = t.status === 2;
+      const priority = priorityMap[t.priority as number] || 'None';
+      const tags = (t.tags || []).join(',');
+      const completed = t.status === 2;
       const isRecurring = !!t.repeatFlag;
-      const repeatFlag  = t.repeatFlag || '';
+      const repeatFlag = t.repeatFlag || '';
       const ticktickProjectId = t.projectId || '';
-      const points      = calculateTaskScore({ priority, tags } as any);
+      const points = calculateTaskScore({ priority, tags } as any);
 
       // Priority: dueDate → startDate → completedTime → createdTime
       const date =
-        (t.dueDate       && t.dueDate.split('T')[0])       ||
-        (t.startDate     && t.startDate.split('T')[0])     ||
+        (t.dueDate && t.dueDate.split('T')[0]) ||
+        (t.startDate && t.startDate.split('T')[0]) ||
         (t.completedTime && t.completedTime.split('T')[0]) ||
-        (t.createdTime   && t.createdTime.split('T')[0])   ||
+        (t.createdTime && t.createdTime.split('T')[0]) ||
         new Date().toISOString().split('T')[0]; // should never reach here
 
       await prisma.task.upsert({
-        where:  { id: t.id },
+        where: { id: t.id },
         update: { name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId },
         create: { id: t.id, name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, notionUrl: null },
       });
