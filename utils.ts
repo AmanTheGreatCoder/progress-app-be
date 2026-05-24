@@ -29,9 +29,10 @@ export const calculateTaskScore = (task: Task): number => {
 export const aggregateDailyScores = (tasks: Task[]) => {
   const scoresByDate: Record<string, number> = {};
   tasks.forEach(task => {
-    if (task.completed) {
+    if (task.completed || task.completedMin) {
       const date = task.date;
-      const score = calculateTaskScore(task);
+      const fullScore = calculateTaskScore(task);
+      const score = task.completedMin ? Math.round(fullScore / 2) : task.completed ? fullScore : 0;
       scoresByDate[date] = (scoresByDate[date] || 0) + score;
     }
   });
@@ -60,8 +61,9 @@ export const calculateStreak = (dailyScores: Record<string, number>, targetScore
 
 export const calculateTagBreakdown = (tasks: Task[], date: string) => {
   const breakdown: Record<string, number> = { Work: 0, Health: 0, Personal: 0 };
-  tasks.filter(t => t.date === date && t.completed).forEach(t => {
-    const score = calculateTaskScore(t);
+  tasks.filter(t => t.date === date && (t.completed || t.completedMin)).forEach(t => {
+    const fullScore = calculateTaskScore(t);
+    const score = t.completedMin ? Math.round(fullScore / 2) : fullScore;
     const tags = t.tags ? t.tags.split(',').filter(Boolean) : [];
     tags.forEach(tag => {
       if (['Work', 'Health', 'Personal'].includes(tag)) {
@@ -81,7 +83,7 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
   if (linkedRecurring.length > 0 && allTasks) {
     // Recurring-series links (authoritative if isRecurring is true)
     done = allTasks.filter(t =>
-      t.completed &&
+      (t.completed || t.completedMin) &&
       t.isRecurring &&
       linkedRecurring.includes(t.name) &&
       t.date >= goal.startDate &&
@@ -90,7 +92,7 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
   } else if (linkedNames.length > 0 && allTasks) {
     // Name-based fallback
     done = allTasks.filter(t =>
-      t.completed &&
+      (t.completed || t.completedMin) &&
       linkedNames.includes(t.name) &&
       t.date >= goal.startDate &&
       t.date <= goal.deadline

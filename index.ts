@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import axios from 'axios';
 import https from 'https';
+import fs from 'fs';
+import path from 'path';
 import { Client } from '@notionhq/client';
 import { PrismaClient } from '@prisma/client';
 import { aggregateDailyScores, calculateStreak, calculateTagBreakdown, computeGoalProgress, calculateTaskScore } from './utils.js';
@@ -183,7 +185,14 @@ app.get('/api/dashboard', async (req, res) => {
 // ─── GET /api/analytics ───────────────────────────────────────────────────────
 app.get('/api/analytics', async (_req, res) => {
   try {
-    const tasks = await prisma.task.findMany({ where: { completed: true } });
+    const tasks = await prisma.task.findMany({ 
+      where: { 
+        OR: [
+          { completed: true },
+          { completedMin: true }
+        ] 
+      } 
+    });
     const completedTaskIds = new Set(tasks.map(t => t.id));
 
     const goals = await prisma.goal.findMany({ include: { logs: true } });
@@ -418,7 +427,94 @@ app.post('/api/sync', async (_req, res) => {
     // ── Step 5: Upsert everything ─────────────────────────────────────────────
     const priorityMap: Record<number, string> = { 0: 'None', 1: 'Low', 3: 'Medium', 5: 'High' };
 
+    // TickTick returns sub-tasks as `items[]` embedded inside the parent task —
+    // NOT as separate tasks with a parentId. Scan each task's items[] for a
+    // checklist item whose title starts with "min:" (case-insensitive).
+    // Note: TickTick may set completedTime on an item even when item.status stays 0.
+    const parentMinMap = new Map<string, { minVersion: string, completedMin: boolean }>();
     for (const t of allTasks) {
+      const items: any[] = t.items || [];
+      const minItem = items.find((item: any) => /^min:\s*(.+)/i.test(item.title || ''));
+      if (minItem) {
+        const match = (minItem.title || '').match(/^min:\s*(.+)/i);
+        if (match) {
+          parentMinMap.set(t.id, {
+            minVersion: match[1].trim(),
+            completedMin: !!minItem.completedTime || minItem.status === 2,
+          });
+          console.log(`[TickTick Sync] ✓ min: item found on "${t.title}" → completedMin=${!!minItem.completedTime || minItem.status === 2}`);
+        }
+      }
+    }
+
+    const tasksToSave = allTasks; // items are embedded — no separate min: tasks to exclude
+
+    // ── Write debug log ───────────────────────────────────────────────────────
+    try {
+      const logsDir = path.join(process.cwd(), 'logs');
+      if (!fs.existsSync(logsDir)) fs.mkdirSync(logsDir, { recursive: true });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const logPath = path.join(logsDir, `ticktick-sync-${timestamp}.log`);
+
+      const bar = (label: string) => `\n${'═'.repeat(64)}\n  ${label}\n${'═'.repeat(64)}\n`;
+
+      const lines: string[] = [
+        `TickTick Sync Debug Log`,
+        `Generated : ${new Date().toISOString()}`,
+        `Total tasks (deduplicated) : ${allTasks.length}`,
+        `Tasks to save (excl. min:) : ${tasksToSave.length}`,
+
+        bar(`PROJECTS (${projects.length} found)`),
+        projects.map((p: any) => `  • "${p.name}"  id=${p.id}  closed=${p.closed}`).join('\n') || '  (none)',
+
+        bar(`MIN: CHECKLIST ITEMS DETECTED (${parentMinMap.size} tasks have a min: item)`),
+        parentMinMap.size === 0
+          ? [
+              '  ⚠️  ZERO tasks had a min: checklist item detected.',
+              '  Scanned each task\'s items[] array for title starting with "min:" (case-insensitive).',
+              '',
+              '  Possible causes:',
+              '    1. The checklist item title does not start exactly with "min:"',
+              '    2. TickTick returned tasks with no items[] or empty items[]',
+            ].join('\n')
+          : [...parentMinMap.entries()]
+              .map(([tid, v]) => `  taskId     : ${tid}\n  minVersion : "${v.minVersion}"\n  completedMin: ${v.completedMin}`)
+              .join('\n\n'),
+
+        bar(`ALL TASKS WITH items[] (checklist tasks)`),
+        JSON.stringify(
+          allTasks.filter((t: any) => (t.items || []).length > 0).map((t: any) => ({
+            id: t.id, title: t.title, status: t.status,
+            hasMinItem: (t.items || []).some((item: any) => /^min:\s*(.+)/i.test(item.title || '')),
+            items: t.items,
+          })),
+          null, 2
+        ) || '  (none)',
+
+        bar(`ALL COMPLETED TASKS (status === 2)  — ${allTasks.filter((t: any) => t.status === 2).length} tasks`),
+        JSON.stringify(
+          allTasks.filter((t: any) => t.status === 2).map((t: any) => ({
+            id: t.id, title: t.title, status: t.status,
+            parentId: t.parentId ?? null,
+            projectId: t.projectId ?? null,
+            tags: t.tags ?? [],
+            completedTime: t.completedTime ?? null,
+          })),
+          null, 2
+        ),
+
+        bar(`ALL TASKS — FULL DUMP (${allTasks.length} tasks)`),
+        JSON.stringify(allTasks, null, 2),
+      ];
+
+      fs.writeFileSync(logPath, lines.join('\n'), 'utf8');
+      console.log(`[TickTick Sync] 📄 Debug log → ${logPath}`);
+    } catch (logErr: any) {
+      console.warn('[TickTick Sync] Log write failed:', logErr.message);
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
+    for (const t of tasksToSave) {
       const name = t.title || 'Untitled';
       const description = t.content || '';
       const priority = priorityMap[t.priority as number] || 'None';
@@ -429,18 +525,30 @@ app.post('/api/sync', async (_req, res) => {
       const ticktickProjectId = t.projectId || '';
       const points = calculateTaskScore({ priority, tags } as any);
 
+      const parentMinData = parentMinMap.get(t.id);
+      const minVersion = parentMinData ? parentMinData.minVersion : '';
+      const completedMin = parentMinData ? parentMinData.completedMin : false;
+
+      const parseLocalDate = (dString?: string) => {
+        if (!dString) return null;
+        const d = new Date(dString);
+        if (isNaN(d.getTime())) return dString.split('T')[0];
+        // Convert to local YYYY-MM-DD
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+      };
+
       // Priority: dueDate → startDate → completedTime → createdTime
       const date =
-        (t.dueDate && t.dueDate.split('T')[0]) ||
-        (t.startDate && t.startDate.split('T')[0]) ||
-        (t.completedTime && t.completedTime.split('T')[0]) ||
-        (t.createdTime && t.createdTime.split('T')[0]) ||
+        parseLocalDate(t.dueDate) ||
+        parseLocalDate(t.startDate) ||
+        parseLocalDate(t.completedTime) ||
+        parseLocalDate(t.createdTime) ||
         new Date().toISOString().split('T')[0]; // should never reach here
 
       await prisma.task.upsert({
         where: { id: t.id },
-        update: { name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId },
-        create: { id: t.id, name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, notionUrl: null },
+        update: { name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, minVersion, completedMin },
+        create: { id: t.id, name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, notionUrl: null, minVersion, completedMin },
       });
     }
 

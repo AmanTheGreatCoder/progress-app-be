@@ -7,18 +7,20 @@ datasource db {
 }
 
 model Task {
-  id           String   @id
-  name         String
-  description  String   @default("") // task description / notes from Notion
-  priority     String   @default("None")
-  tags         String   @default("") // comma-separated e.g. "Health,Work"
-  date         String
+  id                String   @id
+  name              String
+  description       String   @default("") // task description / notes from Notion
+  priority          String   @default("None")
+  tags              String   @default("") // comma-separated e.g. "Health,Work"
+  date              String
   completed         Boolean  @default(false)
   points            Int      @default(0)
   notionUrl         String?
   isRecurring       Boolean  @default(false)
   repeatFlag        String   @default("")
   ticktickProjectId String   @default("")
+  minVersion        String   @default("")
+  completedMin      Boolean  @default(false)
   lastSyncedAt      DateTime @default(now()) @updatedAt
 }
 
