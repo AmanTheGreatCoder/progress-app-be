@@ -103,21 +103,14 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
 
   const hasLinkedTasks = linkedRecurring.length > 0 || linkedNames.length > 0 || linkedIds.length > 0;
   let total = 1;
-  if (goal.startDate && goal.deadline) {
+  if (goal.targetCount && goal.targetCount > 0) {
+    total = goal.targetCount;
+  } else if (goal.startDate && goal.deadline) {
     const start = new Date(goal.startDate + 'T00:00:00').getTime();
     const end = new Date(goal.deadline + 'T00:00:00').getTime();
     const days = Math.ceil((end - start) / 86400000) + 1;
 
-    if (linkedRecurring.length > 0 && allTasks) {
-      // Dynamic total based on tasks in period
-      total = allTasks.filter(t =>
-        t.isRecurring &&
-        linkedRecurring.includes(t.name) &&
-        t.date >= goal.startDate &&
-        t.date <= goal.deadline
-      ).length;
-      total = Math.max(total, 1);
-    } else if (hasLinkedTasks) {
+    if (hasLinkedTasks) {
       total = Math.max(days, 1);
     } else {
       const totalWeeks = days > 0 ? days / 7 : 0;

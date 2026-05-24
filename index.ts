@@ -189,7 +189,13 @@ app.get('/api/analytics', async (_req, res) => {
     const goals = await prisma.goal.findMany({ include: { logs: true } });
     const goalStats = goals.map(g => {
       const stats = computeGoalProgress(g, completedTaskIds, tasks);
-      return { ...g, ...stats, linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [] };
+      return { 
+        ...g, 
+        ...stats, 
+        linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], 
+        linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [],
+        linkedRecurringNames: g.linkedRecurringNames ? g.linkedRecurringNames.split(',').filter(Boolean) : []
+      };
     });
 
     const avgCompletion = goalStats.length > 0
@@ -211,7 +217,13 @@ app.get('/api/goals', async (_req, res) => {
 
     const mapped = goals.map(g => {
       const stats = computeGoalProgress(g, completedTaskIds, tasks);
-      return { ...g, ...stats, linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [] };
+      return { 
+        ...g, 
+        ...stats, 
+        linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], 
+        linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [],
+        linkedRecurringNames: g.linkedRecurringNames ? g.linkedRecurringNames.split(',').filter(Boolean) : []
+      };
     });
     res.json(mapped);
   } catch (err: any) {
@@ -221,7 +233,7 @@ app.get('/api/goals', async (_req, res) => {
 
 app.post('/api/goals', async (req, res) => {
   try {
-    const { title, startDate, deadline, category, targetFrequency, targetCount, priority, linkedTaskIds, linkedTaskNames } = req.body;
+    const { title, startDate, deadline, category, targetFrequency, targetCount, priority, linkedTaskIds, linkedTaskNames, linkedRecurringNames } = req.body;
     const goal = await prisma.goal.create({
       data: {
         title, startDate, deadline, category,
@@ -230,11 +242,17 @@ app.post('/api/goals', async (req, res) => {
         priority,
         linkedTaskIds: linkedTaskIds?.join(',') || '',
         linkedTaskNames: linkedTaskNames?.join(',') || '',
+        linkedRecurringNames: linkedRecurringNames?.join(',') || '',
         createdAt: new Date().toISOString().split('T')[0]
       },
       include: { logs: true }
     });
-    res.json({ ...goal, linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [] });
+    res.json({ 
+      ...goal, 
+      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
+      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
+      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -242,14 +260,20 @@ app.post('/api/goals', async (req, res) => {
 
 app.patch('/api/goals/:id', async (req, res) => {
   try {
-    const { linkedTaskIds, linkedTaskNames, targetCount, ...rest } = req.body;
+    const { linkedTaskIds, linkedTaskNames, linkedRecurringNames, targetCount, ...rest } = req.body;
     const data: any = { ...rest };
     if (linkedTaskIds !== undefined) data.linkedTaskIds = linkedTaskIds.join(',');
     if (linkedTaskNames !== undefined) data.linkedTaskNames = linkedTaskNames.join(',');
+    if (linkedRecurringNames !== undefined) data.linkedRecurringNames = linkedRecurringNames.join(',');
     if (targetCount !== undefined) data.targetCount = targetCount;
 
     const goal = await prisma.goal.update({ where: { id: req.params.id }, data, include: { logs: true } });
-    res.json({ ...goal, linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [] });
+    res.json({ 
+      ...goal, 
+      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
+      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
+      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -287,7 +311,12 @@ app.post('/api/goals/:id/log', async (req, res) => {
 
     const goal = await prisma.goal.findUnique({ where: { id: req.params.id }, include: { logs: true } });
     if (!goal) return res.status(404).json({ error: 'Goal not found' });
-    res.json({ ...goal, linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [] });
+    res.json({ 
+      ...goal, 
+      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
+      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
+      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
