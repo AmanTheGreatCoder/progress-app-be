@@ -13,10 +13,20 @@ model Task {
   priority     String   @default("None")
   tags         String   @default("") // comma-separated e.g. "Health,Work"
   date         String
-  completed    Boolean  @default(false)
-  points       Int      @default(0)
-  notionUrl    String?
-  lastSyncedAt DateTime @default(now()) @updatedAt
+  completed         Boolean  @default(false)
+  points            Int      @default(0)
+  notionUrl         String?
+  isRecurring       Boolean  @default(false)
+  repeatFlag        String   @default("")
+  ticktickProjectId String   @default("")
+  lastSyncedAt      DateTime @default(now()) @updatedAt
+}
+
+model TickTickAuth {
+  id           String   @id @default("singleton")
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
 }
 
 model Goal {
@@ -28,8 +38,9 @@ model Goal {
   targetFrequency Int
   priority        String
   archived        Boolean   @default(false)
-  linkedTaskIds   String    @default("") // comma-separated task IDs (legacy)
-  linkedTaskNames String    @default("") // comma-separated task names for recurring match
+  linkedTaskIds        String    @default("") // comma-separated task IDs (legacy)
+  linkedTaskNames      String    @default("") // comma-separated task names for recurring match
+  linkedRecurringNames String    @default("") // comma-separated task names for recurring series
   targetCount     Int       @default(0)  // total sessions to achieve goal (0 = use frequency)
   createdAt       String    // YYYY-MM-DD
   logs            GoalLog[]

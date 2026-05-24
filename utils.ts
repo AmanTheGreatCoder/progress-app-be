@@ -3,24 +3,27 @@ import type { Task } from '@prisma/client';
 export const calculateTaskScore = (task: Task): number => {
   if (task.points > 0) return task.points;
 
-  const priorityWeight = { High: 3, Medium: 2, Low: 1, None: 0 }[task.priority] ?? 0;
+  const tags = task.tags ? task.tags.split(',').filter(Boolean).map(t => t.toLowerCase()) : [];
+
+  // 1. Priority Multiplier
+  const priorityWeight = { 'High': 3.0, 'Medium': 2.0, 'Low': 1.5, 'None': 1.0 }[task.priority] ?? 1.0;
   
-  const tags = task.tags ? task.tags.split(',').filter(Boolean) : [];
-  const tagWeights = { Work: 2.0, Health: 2.0, Personal: 1.0 };
-  const tagWeight = Math.max(...tags.map(tag => (tagWeights as any)[tag] ?? 1.0), 1.0);
+  // 2. Base Effort
+  let baseEffort = 1;
+  if (tags.includes('hard')) baseEffort = 5;
+  else if (tags.includes('medium')) baseEffort = 3;
+  else if (tags.includes('easy')) baseEffort = 1;
 
-  const effortTag = tags.find(tag => /^e\d+$/.test(tag));
-  let effortValue = 1;
+  // 3. Category Multiplier
+  const catWeights: Record<string, number> = { 'work': 2.0, 'health': 2.0, 'personal': 1.5, 'routine': 1.0 };
+  const categoryWeight = Math.max(...tags.map(tag => catWeights[tag] ?? 1.0), 1.0);
 
-  if (effortTag) {
-    effortValue = parseInt(effortTag.substring(1));
-  } else {
-    const defaultEfforts: any = { Routine: 1, Health: 2, Personal: 2, 'Mental Health': 3, Work: 3 };
-    const efforts = tags.map(tag => defaultEfforts[tag]).filter(Boolean);
-    if (efforts.length > 0) effortValue = Math.max(...efforts);
-  }
+  // 4. Special Tags Multiplier
+  let specialMultiplier = 1.0;
+  if (tags.includes('challenge')) specialMultiplier *= 2.0;
+  if (tags.includes('fitness')) specialMultiplier *= 1.5;
 
-  return priorityWeight * tagWeight * effortValue;
+  return Math.round(baseEffort * priorityWeight * categoryWeight * specialMultiplier);
 };
 
 export const aggregateDailyScores = (tasks: Task[]) => {
@@ -72,10 +75,20 @@ export const calculateTagBreakdown = (tasks: Task[], date: string) => {
 export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, allTasks?: any[]) => {
   const linkedNames = goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [];
   const linkedIds = goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [];
+  const linkedRecurring = goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : [];
 
   let done: number;
-  if (linkedNames.length > 0 && allTasks) {
-    // Name-based: count completed tasks matching any linked name within goal period
+  if (linkedRecurring.length > 0 && allTasks) {
+    // Recurring-series links (authoritative if isRecurring is true)
+    done = allTasks.filter(t =>
+      t.completed &&
+      t.isRecurring &&
+      linkedRecurring.includes(t.name) &&
+      t.date >= goal.startDate &&
+      t.date <= goal.deadline
+    ).length;
+  } else if (linkedNames.length > 0 && allTasks) {
+    // Name-based fallback
     done = allTasks.filter(t =>
       t.completed &&
       linkedNames.includes(t.name) &&
@@ -88,13 +101,23 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
     done = goal.logs ? goal.logs.length : 0;
   }
 
-  const hasLinkedTasks = linkedNames.length > 0 || linkedIds.length > 0;
+  const hasLinkedTasks = linkedRecurring.length > 0 || linkedNames.length > 0 || linkedIds.length > 0;
   let total = 1;
   if (goal.startDate && goal.deadline) {
     const start = new Date(goal.startDate + 'T00:00:00').getTime();
     const end = new Date(goal.deadline + 'T00:00:00').getTime();
     const days = Math.ceil((end - start) / 86400000) + 1;
-    if (hasLinkedTasks) {
+
+    if (linkedRecurring.length > 0 && allTasks) {
+      // Dynamic total based on tasks in period
+      total = allTasks.filter(t =>
+        t.isRecurring &&
+        linkedRecurring.includes(t.name) &&
+        t.date >= goal.startDate &&
+        t.date <= goal.deadline
+      ).length;
+      total = Math.max(total, 1);
+    } else if (hasLinkedTasks) {
       total = Math.max(days, 1);
     } else {
       const totalWeeks = days > 0 ? days / 7 : 0;
