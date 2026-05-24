@@ -4,8 +4,8 @@
 	"version": "0.0.0",
 	"type": "module",
 	"scripts": {
-		"setup": "yarn && yarn build && yarn prisma:generate && yarn prisma:deploy",
-		"build": "tsc",
+		"setup": "yarn && yarn build && yarn prisma:deploy",
+		"build": "prisma generate && tsc",
 		"start": "node dist/index.js",
 		"dev": "nodemon --watch . --ext ts --exec tsx index.ts",
 		"prisma:migrate": "prisma migrate dev",
