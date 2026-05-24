@@ -4,11 +4,13 @@
 	"version": "0.0.0",
 	"type": "module",
 	"scripts": {
+		"setup": "yarn && yarn build && yarn prisma:generate && yarn prisma:deploy",
 		"build": "tsc",
 		"start": "node dist/index.js",
 		"dev": "nodemon --watch . --ext ts --exec tsx index.ts",
 		"prisma:migrate": "prisma migrate dev",
-		"prisma:generate": "prisma generate"
+		"prisma:generate": "prisma generate",
+		"prisma:deploy": "prisma migrate deploy"
 	},
 	"dependencies": {
 		"@notionhq/client": "2.2.15",
