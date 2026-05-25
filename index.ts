@@ -344,6 +344,23 @@ app.get('/api/tasks', async (_req, res) => {
   }
 });
 
+// ─── GET /api/tasks/series — unique recurring series names ────────────────────
+// Returns distinct names of all tasks marked isRecurring=true.
+// Used by the Goal detail "Link series" picker — no business logic on frontend.
+app.get('/api/tasks/series', async (_req, res) => {
+  try {
+    const rows = await prisma.task.findMany({
+      where: { isRecurring: true },
+      select: { name: true },
+      distinct: ['name'],
+      orderBy: { name: 'asc' },
+    });
+    res.json(rows.map((r: any) => r.name));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── POST /api/sync — fetch directly from TickTick ───────────────────────────
 app.post('/api/sync', async (_req, res) => {
   console.log('[TickTick Sync] Starting sync...');
@@ -514,13 +531,23 @@ app.post('/api/sync', async (_req, res) => {
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    // TickTick's completed-tasks endpoint strips repeatFlag from returned tasks.
+    // So collect series names from tasks that DO have repeatFlag, then use that
+    // set to mark all instances of the same name as isRecurring=true.
+    const recurringSeriesNames = new Set<string>(
+      allTasks.filter((t: any) => !!t.repeatFlag).map((t: any) => (t.title || '').trim())
+    );
+    console.log(`[TickTick Sync] Recurring series: ${[...recurringSeriesNames].join(' | ') || 'none'}`);
+
     for (const t of tasksToSave) {
       const name = t.title || 'Untitled';
       const description = t.content || '';
       const priority = priorityMap[t.priority as number] || 'None';
       const tags = (t.tags || []).join(',');
       const completed = t.status === 2;
-      const isRecurring = !!t.repeatFlag;
+      // isRecurring=true if the task itself has repeatFlag, OR if any other
+      // instance of the same task name has repeatFlag (propagate across series).
+      const isRecurring = !!t.repeatFlag || recurringSeriesNames.has(name.trim());
       const repeatFlag = t.repeatFlag || '';
       const ticktickProjectId = t.projectId || '';
       const points = calculateTaskScore({ priority, tags } as any);
