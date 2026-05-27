@@ -332,10 +332,16 @@ app.post('/api/goals/:id/log', async (req, res) => {
 });
 
 // ─── GET /api/tasks — serve from local DB ─────────────────────────────────────
-app.get('/api/tasks', async (_req, res) => {
+// Optional ?date=YYYY-MM-DD to filter by a specific day.
+// If omitted, defaults to today (server local date).
+app.get('/api/tasks', async (req, res) => {
   try {
-    const tasks = await prisma.task.findMany({ orderBy: { date: 'desc' } });
-    // Parse tags back to array for the frontend
+    const { date } = req.query;
+    const filterDate = (date as string) || new Date().toISOString().split('T')[0];
+    const tasks = await prisma.task.findMany({
+      where: { date: filterDate },
+      orderBy: { date: 'desc' },
+    });
     const mapped = tasks.map(t => ({ ...t, tags: t.tags ? t.tags.split(',').filter(Boolean) : [], description: t.description || '' }));
     res.json(mapped);
   } catch (err: any) {
