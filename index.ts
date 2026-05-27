@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { Client } from '@notionhq/client';
 import { PrismaClient } from '@prisma/client';
-import { aggregateDailyScores, calculateStreak, calculateTagBreakdown, computeGoalProgress, calculateTaskScore } from './utils.js';
+import { aggregateDailyScores, calculateStreak, calculateTagBreakdown, computeGoalProgress, calculateTaskScore, parseLinkedNames } from './utils.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import pg from 'pg';
 
@@ -185,26 +185,15 @@ app.get('/api/dashboard', async (req, res) => {
 // ─── GET /api/analytics ───────────────────────────────────────────────────────
 app.get('/api/analytics', async (_req, res) => {
   try {
-    const tasks = await prisma.task.findMany({ 
-      where: { 
-        OR: [
-          { completed: true },
-          { completedMin: true }
-        ] 
-      } 
+    const tasks = await prisma.task.findMany({
+      where: { OR: [{ completed: true }, { completedMin: true }] },
     });
     const completedTaskIds = new Set(tasks.map(t => t.id));
 
-    const goals = await prisma.goal.findMany({ include: { logs: true } });
+    const goals = await prisma.goal.findMany({ include: GOAL_INCLUDE });
     const goalStats = goals.map(g => {
       const stats = computeGoalProgress(g, completedTaskIds, tasks);
-      return { 
-        ...g, 
-        ...stats, 
-        linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], 
-        linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [],
-        linkedRecurringNames: g.linkedRecurringNames ? g.linkedRecurringNames.split(',').filter(Boolean) : []
-      };
+      return serializeGoal(g, stats);
     });
 
     const avgCompletion = goalStats.length > 0
@@ -217,22 +206,51 @@ app.get('/api/analytics', async (_req, res) => {
   }
 });
 
+// ─── Helper: serialize a Goal DB row into the API response shape ──────────────
+// Handles all legacy fields + new linkedSeries join table data.
+// `g` must be fetched with: include: { logs: true, linkedSeries: { include: { series: true } } }
+function serializeGoal(g: any, stats: { done: number; total: number; pct: number }) {
+  return {
+    ...g,
+    ...stats,
+    // Legacy arrays (kept for backward compat)
+    linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [],
+    linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [],
+    linkedRecurringNames: parseLinkedNames(g.linkedRecurringNames),
+    // New: series join table — expose as two shapes for the frontend
+    linkedSeriesIds: (g.linkedSeries || []).map((gs: any) => gs.seriesId),
+    linkedSeries: (g.linkedSeries || []).map((gs: any) => ({
+      id:        gs.seriesId,
+      name:      gs.series.name,
+      tags:      gs.series.tags ? gs.series.tags.split(',').filter(Boolean) : [],
+      firstSeen: gs.series.firstSeen,
+      lastSeen:  gs.series.lastSeen,
+      taskCount: gs.series.taskCount,
+    })),
+  };
+}
+
+const GOAL_INCLUDE = {
+  logs: true,
+  linkedSeries: { include: { series: true } },
+} as const;
+
 // ─── GOAL APIs ────────────────────────────────────────────────────────────────
 app.get('/api/goals', async (_req, res) => {
   try {
-    const goals = await prisma.goal.findMany({ include: { logs: true }, orderBy: { createdAt: 'desc' } });
-    const tasks = await prisma.task.findMany({ where: { completed: true } });
+    const goals = await prisma.goal.findMany({
+      include: GOAL_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+    });
+    // Fetch ALL tasks (completed OR completedMin) for accurate progress counting
+    const tasks = await prisma.task.findMany({
+      where: { OR: [{ completed: true }, { completedMin: true }] },
+    });
     const completedTaskIds = new Set(tasks.map(t => t.id));
 
     const mapped = goals.map(g => {
       const stats = computeGoalProgress(g, completedTaskIds, tasks);
-      return { 
-        ...g, 
-        ...stats, 
-        linkedTaskIds: g.linkedTaskIds ? g.linkedTaskIds.split(',').filter(Boolean) : [], 
-        linkedTaskNames: g.linkedTaskNames ? g.linkedTaskNames.split(',').filter(Boolean) : [],
-        linkedRecurringNames: g.linkedRecurringNames ? g.linkedRecurringNames.split(',').filter(Boolean) : []
-      };
+      return serializeGoal(g, stats);
     });
     res.json(mapped);
   } catch (err: any) {
@@ -242,7 +260,13 @@ app.get('/api/goals', async (_req, res) => {
 
 app.post('/api/goals', async (req, res) => {
   try {
-    const { title, startDate, deadline, category, targetFrequency, targetCount, priority, linkedTaskIds, linkedTaskNames, linkedRecurringNames } = req.body;
+    const {
+      title, startDate, deadline, category,
+      targetFrequency, targetCount, priority,
+      linkedTaskIds, linkedTaskNames, linkedRecurringNames,
+      linkedSeriesIds,
+    } = req.body;
+
     const goal = await prisma.goal.create({
       data: {
         title, startDate, deadline, category,
@@ -251,17 +275,18 @@ app.post('/api/goals', async (req, res) => {
         priority,
         linkedTaskIds: linkedTaskIds?.join(',') || '',
         linkedTaskNames: linkedTaskNames?.join(',') || '',
-        linkedRecurringNames: linkedRecurringNames?.join(',') || '',
-        createdAt: new Date().toISOString().split('T')[0]
+        linkedRecurringNames: JSON.stringify(linkedRecurringNames || []),
+        createdAt: new Date().toISOString().split('T')[0],
+        // Create GoalSeries rows if series IDs were provided
+        ...(linkedSeriesIds?.length > 0 ? {
+          linkedSeries: {
+            create: linkedSeriesIds.map((seriesId: string) => ({ seriesId })),
+          },
+        } : {}),
       },
-      include: { logs: true }
+      include: GOAL_INCLUDE,
     });
-    res.json({ 
-      ...goal, 
-      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
-      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
-      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
-    });
+    res.json(serializeGoal(goal, { done: 0, total: 1, pct: 0 }));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -269,20 +294,41 @@ app.post('/api/goals', async (req, res) => {
 
 app.patch('/api/goals/:id', async (req, res) => {
   try {
-    const { linkedTaskIds, linkedTaskNames, linkedRecurringNames, targetCount, ...rest } = req.body;
+    const { linkedTaskIds, linkedTaskNames, linkedRecurringNames, linkedSeriesIds, targetCount, ...rest } = req.body;
     const data: any = { ...rest };
     if (linkedTaskIds !== undefined) data.linkedTaskIds = linkedTaskIds.join(',');
     if (linkedTaskNames !== undefined) data.linkedTaskNames = linkedTaskNames.join(',');
-    if (linkedRecurringNames !== undefined) data.linkedRecurringNames = linkedRecurringNames.join(',');
+    if (linkedRecurringNames !== undefined) data.linkedRecurringNames = JSON.stringify(linkedRecurringNames);
     if (targetCount !== undefined) data.targetCount = targetCount;
 
-    const goal = await prisma.goal.update({ where: { id: req.params.id }, data, include: { logs: true } });
-    res.json({ 
-      ...goal, 
-      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
-      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
-      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
+    // Sync GoalSeries rows when linkedSeriesIds is explicitly provided
+    if (linkedSeriesIds !== undefined) {
+      await prisma.goalSeries.deleteMany({ where: { goalId: req.params.id } });
+      if (linkedSeriesIds.length > 0) {
+        await prisma.goalSeries.createMany({
+          data: linkedSeriesIds.map((seriesId: string) => ({
+            goalId: req.params.id,
+            seriesId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+    }
+
+    const goal = await prisma.goal.update({
+      where: { id: req.params.id },
+      data,
+      include: GOAL_INCLUDE,
     });
+
+    // Recompute progress with up-to-date tasks
+    const tasks = await prisma.task.findMany({
+      where: { OR: [{ completed: true }, { completedMin: true }] },
+    });
+    const completedTaskIds = new Set(tasks.map(t => t.id));
+    const stats = computeGoalProgress(goal, completedTaskIds, tasks);
+
+    res.json(serializeGoal(goal, stats));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -318,29 +364,47 @@ app.post('/api/goals/:id/log', async (req, res) => {
       }
     });
 
-    const goal = await prisma.goal.findUnique({ where: { id: req.params.id }, include: { logs: true } });
-    if (!goal) return res.status(404).json({ error: 'Goal not found' });
-    res.json({ 
-      ...goal, 
-      linkedTaskIds: goal.linkedTaskIds ? goal.linkedTaskIds.split(',').filter(Boolean) : [], 
-      linkedTaskNames: goal.linkedTaskNames ? goal.linkedTaskNames.split(',').filter(Boolean) : [],
-      linkedRecurringNames: goal.linkedRecurringNames ? goal.linkedRecurringNames.split(',').filter(Boolean) : []
+    const goal = await prisma.goal.findUnique({
+      where: { id: req.params.id },
+      include: GOAL_INCLUDE,
     });
+    if (!goal) return res.status(404).json({ error: 'Goal not found' });
+    const tasks = await prisma.task.findMany({
+      where: { OR: [{ completed: true }, { completedMin: true }] },
+    });
+    const completedTaskIds = new Set(tasks.map((t: any) => t.id));
+    const stats = computeGoalProgress(goal, completedTaskIds, tasks);
+    res.json(serializeGoal(goal, stats));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─── GET /api/tasks — serve from local DB ─────────────────────────────────────
-// Optional ?date=YYYY-MM-DD to filter by a specific day.
-// If omitted, defaults to today (server local date).
+// Query params (all optional):
+//   ?date=YYYY-MM-DD          single-day filter (default: today)
+//   ?from=YYYY-MM-DD&to=YYYY-MM-DD  date range (overrides ?date)
+//   ?name=TASK_NAME           exact name filter (can combine with date/range)
 app.get('/api/tasks', async (req, res) => {
   try {
-    const { date } = req.query;
-    const filterDate = (date as string) || new Date().toISOString().split('T')[0];
+    const { date, name, from, to } = req.query;
+
+    const where: any = {};
+
+    // Name filter (exact match — used for series instance lookup)
+    if (name) where.name = name as string;
+
+    // Date filter: range takes priority over single date
+    if (from && to) {
+      // YYYY-MM-DD strings compare lexicographically correctly in Postgres
+      where.date = { gte: from as string, lte: to as string };
+    } else {
+      where.date = (date as string) || new Date().toISOString().split('T')[0];
+    }
+
     const tasks = await prisma.task.findMany({
-      where: { date: filterDate },
-      orderBy: { date: 'desc' },
+      where,
+      orderBy: { date: 'asc' },
     });
     const mapped = tasks.map(t => ({ ...t, tags: t.tags ? t.tags.split(',').filter(Boolean) : [], description: t.description || '' }));
     res.json(mapped);
@@ -350,18 +414,21 @@ app.get('/api/tasks', async (req, res) => {
   }
 });
 
-// ─── GET /api/tasks/series — unique recurring series names ────────────────────
-// Returns distinct names of all tasks marked isRecurring=true.
-// Used by the Goal detail "Link series" picker — no business logic on frontend.
+// ─── GET /api/tasks/series — recurring task series for the goal link picker ───
+// Reads from the TaskSeries table (rebuilt on every sync).
+// Shape: { id, name, tags, firstSeen, lastSeen, taskCount }
 app.get('/api/tasks/series', async (_req, res) => {
   try {
-    const rows = await prisma.task.findMany({
-      where: { isRecurring: true },
-      select: { name: true },
-      distinct: ['name'],
-      orderBy: { name: 'asc' },
-    });
-    res.json(rows.map((r: any) => r.name));
+    const rows = await prisma.taskSeries.findMany({ orderBy: { name: 'asc' } });
+    const series = rows.map(s => ({
+      id:        s.id,
+      name:      s.name,
+      tags:      s.tags ? s.tags.split(',').filter(Boolean) : [],
+      firstSeen: s.firstSeen,
+      lastSeen:  s.lastSeen,
+      taskCount: s.taskCount,
+    }));
+    res.json(series);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -447,6 +514,14 @@ app.post('/api/sync', async (_req, res) => {
     const allTasks = [...taskMap.values()];
     console.log(`[TickTick Sync] Total unique tasks to upsert: ${allTasks.length}`);
 
+    // ── Filter out TickTick notes ─────────────────────────────────────────────
+    // When a task is converted to a note in TickTick, the API sets kind: "NOTE".
+    // Regular tasks have kind: "TEXT" or no kind field. Skip notes entirely.
+    const notes = allTasks.filter((t: any) => t.kind === 'NOTE');
+    if (notes.length > 0) {
+      console.log(`[TickTick Sync] Skipping ${notes.length} note(s): ${notes.map((t: any) => `"${t.title}"`).join(', ')}`);
+    }
+
     // ── Step 5: Upsert everything ─────────────────────────────────────────────
     const priorityMap: Record<number, string> = { 0: 'None', 1: 'Low', 3: 'Medium', 5: 'High' };
 
@@ -470,7 +545,7 @@ app.post('/api/sync', async (_req, res) => {
       }
     }
 
-    const tasksToSave = allTasks; // items are embedded — no separate min: tasks to exclude
+    const tasksToSave = allTasks.filter((t: any) => t.kind !== 'NOTE'); // exclude TickTick notes
 
     // ── Write debug log ───────────────────────────────────────────────────────
     try {
@@ -485,7 +560,8 @@ app.post('/api/sync', async (_req, res) => {
         `TickTick Sync Debug Log`,
         `Generated : ${new Date().toISOString()}`,
         `Total tasks (deduplicated) : ${allTasks.length}`,
-        `Tasks to save (excl. min:) : ${tasksToSave.length}`,
+        `Tasks to save (excl. notes): ${tasksToSave.length}`,
+        `Notes skipped              : ${notes.length}`,
 
         bar(`PROJECTS (${projects.length} found)`),
         projects.map((p: any) => `  • "${p.name}"  id=${p.id}  closed=${p.closed}`).join('\n') || '  (none)',
@@ -513,6 +589,11 @@ app.post('/api/sync', async (_req, res) => {
           })),
           null, 2
         ) || '  (none)',
+
+        bar(`NOTES SKIPPED (kind="NOTE") — ${notes.length} items`),
+        notes.length === 0
+          ? '  (none)'
+          : JSON.stringify(notes.map((t: any) => ({ id: t.id, title: t.title, kind: t.kind })), null, 2),
 
         bar(`ALL COMPLETED TASKS (status === 2)  — ${allTasks.filter((t: any) => t.status === 2).length} tasks`),
         JSON.stringify(
@@ -585,8 +666,59 @@ app.post('/api/sync', async (_req, res) => {
       });
     }
 
-    console.log(`[TickTick Sync] ✓ Done. ${allTasks.length} tasks synced.`);
-    res.json({ synced: allTasks.length });
+    // ── Step 6: Rebuild TaskSeries from the full Task table ──────────────────
+    // This runs after all upserts so we see the complete picture, including
+    // tasks from previous syncs.  Each series = one unique normalised name.
+    try {
+      const allRecurring = await prisma.task.findMany({ where: { isRecurring: true } });
+
+      // Group by nameLower
+      const seriesMap = new Map<string, {
+        name: string;
+        dates: string[];
+        tags: Set<string>;
+        count: number;
+      }>();
+
+      for (const task of allRecurring) {
+        const nameLower = task.name.trim().toLowerCase();
+        if (!seriesMap.has(nameLower)) {
+          seriesMap.set(nameLower, { name: task.name.trim(), dates: [], tags: new Set(), count: 0 });
+        }
+        const s = seriesMap.get(nameLower)!;
+        s.count++;
+        if (task.date) s.dates.push(task.date);
+        if (task.tags) task.tags.split(',').filter(Boolean).forEach(t => s.tags.add(t));
+      }
+
+      for (const [nameLower, s] of seriesMap.entries()) {
+        s.dates.sort();
+        await prisma.taskSeries.upsert({
+          where: { nameLower },
+          update: {
+            name:      s.name,
+            tags:      [...s.tags].join(','),
+            firstSeen: s.dates[0]  ?? '',
+            lastSeen:  s.dates[s.dates.length - 1] ?? '',
+            taskCount: s.count,
+          },
+          create: {
+            name:      s.name,
+            nameLower,
+            tags:      [...s.tags].join(','),
+            firstSeen: s.dates[0]  ?? '',
+            lastSeen:  s.dates[s.dates.length - 1] ?? '',
+            taskCount: s.count,
+          },
+        });
+      }
+      console.log(`[TickTick Sync] 📚 TaskSeries rebuilt: ${seriesMap.size} series`);
+    } catch (seriesErr: any) {
+      console.warn('[TickTick Sync] TaskSeries rebuild failed:', seriesErr.message);
+    }
+
+    console.log(`[TickTick Sync] ✓ Done. ${tasksToSave.length} tasks synced, ${notes.length} notes skipped.`);
+    res.json({ synced: tasksToSave.length, notesSkipped: notes.length });
   } catch (err: any) {
     console.error('[TickTick Sync] Error:', err.response?.data || err.message);
     res.status(500).json({ error: err.response?.data || err.message });
