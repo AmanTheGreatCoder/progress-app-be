@@ -18,6 +18,7 @@ router.get('/api/ticktick/status', async (_req, res) => {
 });
 
 router.get('/api/ticktick/auth', (_req, res) => {
+  console.log("tick tick client id", TICKTICK_CLIENT_ID)
   const url = `https://ticktick.com/oauth/authorize?client_id=${TICKTICK_CLIENT_ID}&response_type=code&redirect_uri=${encodeURIComponent(TICKTICK_REDIRECT_URI)}&scope=tasks:read`;
   res.json({ url });
 });
