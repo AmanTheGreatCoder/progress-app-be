@@ -1,0 +1,82 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Task {
+  id                String   @id
+  name              String
+  description       String   @default("") // task description / notes from Notion
+  priority          String   @default("None")
+  tags              String   @default("") // comma-separated e.g. "Health,Work"
+  date              String
+  completed         Boolean  @default(false)
+  points            Int      @default(0)
+  notionUrl         String?
+  isRecurring       Boolean  @default(false)
+  repeatFlag        String   @default("")
+  ticktickProjectId String   @default("")
+  minVersion        String   @default("")
+  completedMin      Boolean  @default(false)
+  lastSyncedAt      DateTime @default(now()) @updatedAt
+}
+
+model TickTickAuth {
+  id           String   @id @default("singleton")
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+}
+
+// One row per unique recurring task name (rebuilt on every sync).
+model TaskSeries {
+  id        String       @id @default(uuid())
+  name      String       // display name (canonical trimmed form, case-preserved)
+  nameLower String       @unique  // name.trim().toLowerCase() — dedup key
+  tags      String       @default("")   // comma-separated union of all instance tags
+  firstSeen String       @default("")   // earliest YYYY-MM-DD seen across all instances
+  lastSeen  String       @default("")   // latest  YYYY-MM-DD seen across all instances
+  taskCount Int          @default(0)   // total instances in the Task table
+  goals     GoalSeries[]
+}
+
+// Join table: which TaskSeries rows a Goal is tracking.
+model GoalSeries {
+  id       String     @id @default(uuid())
+  goalId   String
+  seriesId String
+  goal     Goal       @relation(fields: [goalId],   references: [id], onDelete: Cascade)
+  series   TaskSeries @relation(fields: [seriesId], references: [id], onDelete: Cascade)
+
+  @@unique([goalId, seriesId])
+}
+
+model Goal {
+  id                   String       @id @default(uuid())
+  title                String
+  startDate            String
+  deadline             String
+  category             String
+  targetFrequency      Int
+  priority             String
+  archived             Boolean      @default(false)
+  linkedTaskIds        String       @default("") // legacy: comma-separated task IDs
+  linkedTaskNames      String       @default("") // legacy: comma-separated task names
+  linkedRecurringNames String       @default("") // legacy: JSON array of series names
+  targetCount          Int          @default(0)  // 0 = derive from duration
+  createdAt            String       // YYYY-MM-DD
+  logs                 GoalLog[]
+  linkedSeries         GoalSeries[]
+}
+
+model GoalLog {
+  id            String @id @default(uuid())
+  goalId        String
+  date          String
+  effortMinutes Int
+  notes         String
+  goal          Goal   @relation(fields: [goalId], references: [id], onDelete: Cascade)
+}
