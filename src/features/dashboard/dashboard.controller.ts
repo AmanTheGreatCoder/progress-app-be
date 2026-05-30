@@ -11,7 +11,7 @@ export class DashboardController {
   @Get('dashboard')
   async getDashboard(@Req() req: Request, @Query('date') date?: string) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.dashboardService.getDashboard(userId, date);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -21,7 +21,7 @@ export class DashboardController {
   @Get('analytics')
   async getAnalytics(@Req() req: Request) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.dashboardService.getAnalytics(userId);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);

@@ -11,7 +11,7 @@ export class GoalsController {
   @Get()
   async getGoals(@Req() req: Request) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.goalsService.getAllGoals(userId);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -21,7 +21,7 @@ export class GoalsController {
   @Post()
   async createGoal(@Req() req: Request, @Body() body: any) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.goalsService.createGoal(userId, body);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -31,7 +31,7 @@ export class GoalsController {
   @Patch(':id')
   async updateGoal(@Req() req: Request, @Param('id') id: string, @Body() body: any) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.goalsService.updateGoal(userId, id, body);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -41,7 +41,7 @@ export class GoalsController {
   @Delete(':id')
   async deleteGoal(@Req() req: Request, @Param('id') id: string) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.goalsService.deleteGoal(userId, id);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -55,7 +55,7 @@ export class GoalsController {
     @Body() body: { effortMinutes: number; notes: string },
   ) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.goalsService.logProgress(userId, id, body.effortMinutes, body.notes);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);

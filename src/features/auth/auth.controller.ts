@@ -1,6 +1,9 @@
 import { Controller, Get, Query, Req, Res, HttpException, HttpStatus } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
+import { AuthGuard } from './auth.guard';
+import { UseGuards } from '@nestjs/common';
+import { generateToken, verifyToken } from './auth.utils';
 
 @Controller('api/auth')
 export class AuthController {
@@ -12,11 +15,10 @@ export class AuthController {
     return res.redirect(this.authService.getGoogleAuthUrl());
   }
 
-  /** Google redirects here with ?code= after the user approves */
+  /** Google redirects here; we generate a JWT and pass it to the frontend via URL param */
   @Get('google/callback')
   async googleCallback(
     @Query('code') code: string,
-    @Req() req: Request,
     @Res() res: Response,
   ) {
     if (!code) {
@@ -24,30 +26,26 @@ export class AuthController {
     }
     try {
       const user = await this.authService.handleCallback(code);
-      (req.session as any).userId = user.id;
-      return res.redirect(process.env.FRONTEND_URL!);
+      const token = generateToken(user.id);
+      return res.redirect(`${process.env.FRONTEND_URL}?token=${token}`);
     } catch (err: any) {
-      return res
-        .status(HttpStatus.INTERNAL_SERVER_ERROR)
-        .send(`Authentication error: ${err.message}`);
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).send(`Authentication error: ${err.message}`);
     }
   }
 
-  /** Return the signed-in user (called on app load) */
+  /** Verify token and return the user (called on app load) */
   @Get('me')
+  @UseGuards(AuthGuard)
   async getMe(@Req() req: Request) {
-    const userId = (req.session as any)?.userId;
-    if (!userId) throw new HttpException('Not authenticated', HttpStatus.UNAUTHORIZED);
+    const userId = (req as any).userId as string;
     const user = await this.authService.getUserById(userId);
     if (!user) throw new HttpException('User not found', HttpStatus.UNAUTHORIZED);
     return user;
   }
 
-  /** Sign out */
+  /** Logout is handled client-side (delete the token from localStorage) */
   @Get('logout')
-  logout(@Req() req: Request, @Res() res: Response) {
-    req.session.destroy(() => {});
-    res.clearCookie('connect.sid');
-    return res.json({ success: true });
+  logout() {
+    return { success: true };
   }
 }

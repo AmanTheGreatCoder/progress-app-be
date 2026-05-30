@@ -92,7 +92,7 @@ export class TickTickController {
   @UseGuards(AuthGuard)
   async sync(@Req() req: Request) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.tickTickService.sync(userId);
     } catch (err: any) {
       const errData = err.response?.data || err.message;

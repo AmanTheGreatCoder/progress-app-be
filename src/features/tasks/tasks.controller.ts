@@ -17,7 +17,7 @@ export class TasksController {
     @Query('to') to?: string,
   ) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.tasksService.getTasks(userId, date, name, from, to);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -27,7 +27,7 @@ export class TasksController {
   @Get('series')
   async getSeries(@Req() req: Request) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.tasksService.getSeries(userId);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -41,7 +41,7 @@ export class TasksController {
     @Body('completed') completed: boolean,
   ) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.tasksService.updateTask(userId, id, completed);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
@@ -51,7 +51,7 @@ export class TasksController {
   @Delete(':id')
   async deleteTask(@Req() req: Request, @Param('id') id: string) {
     try {
-      const userId = (req.session as any).userId as string;
+      const userId = (req as any).userId as string;
       return await this.tasksService.deleteTask(userId, id);
     } catch (err: any) {
       throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
