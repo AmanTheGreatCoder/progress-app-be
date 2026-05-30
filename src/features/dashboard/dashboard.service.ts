@@ -20,10 +20,13 @@ export class DashboardService {
     const tagBreakdown = calculateTagBreakdown(tasks, viewDate);
 
     const viewTasks = tasks.filter(t => t.date === viewDate);
-    const viewDone = viewTasks.filter(t => t.completed).length;
+    const completedTasks = viewTasks.filter(t => t.completed);
+    const incompleteTasks = viewTasks.filter(t => !t.completed);
+    
+    const viewDone = completedTasks.length;
     const totalView = viewTasks.length;
     const completionPct = totalView > 0 ? Math.round((viewDone / totalView) * 100) : 0;
-    const highDone = viewTasks.filter(t => t.completed && t.priority === 'High').length;
+    const highDone = completedTasks.filter(t => t.priority === 'High').length;
 
     const sortedDays = Object.entries(dailyScores)
       .sort(([a], [b]) => b.localeCompare(a))
@@ -40,7 +43,10 @@ export class DashboardService {
       completionPct,
       highDone,
       sortedDays,
-      maxDayScore
+      maxDayScore,
+      targetPoints: 120,
+      completedTasks,
+      incompleteTasks
     };
   }
 

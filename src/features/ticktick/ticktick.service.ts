@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import axios from 'axios';
+import * as https from 'https';
+
+// Force IPv4 — WSL2 often has broken IPv6 routing which causes Node.js ETIMEDOUT
+// even when curl (IPv4) works fine.
+const ipv4Agent = new https.Agent({ family: 4 });
 
 @Injectable()
 export class TickTickService {
@@ -8,13 +13,10 @@ export class TickTickService {
 
   constructor(private prisma: PrismaService) {}
 
-  private get TICKTICK_CLIENT_ID() {
-    return process.env.TICKTICK_CLIENT_ID!;
-  }
-
-  private get TICKTICK_CLIENT_SECRET() {
-    return process.env.TICKTICK_CLIENT_SECRET!;
-  }
+  private get TICKTICK_CLIENT_ID() { return process.env.TICKTICK_CLIENT_ID!; }
+  private get TICKTICK_CLIENT_SECRET() { return process.env.TICKTICK_CLIENT_SECRET!; }
+  private get TICKTICK_OAUTH_URL() { return process.env.TICKTICK_OAUTH_URL!; }
+  private get TICKTICK_API_URL() { return process.env.TICKTICK_API_URL!; }
 
   async getValidAccessToken(): Promise<string> {
     const auth = await this.prisma.tickTickAuth.findUnique({ where: { id: 'singleton' } });
@@ -22,7 +24,7 @@ export class TickTickService {
 
     if (new Date() >= auth.expiresAt) {
       const encoded = Buffer.from(`${this.TICKTICK_CLIENT_ID}:${this.TICKTICK_CLIENT_SECRET}`).toString('base64');
-      const res = await axios.post('https://ticktick.com/oauth/token', new URLSearchParams({
+      const res = await axios.post(`${this.TICKTICK_OAUTH_URL}/oauth/token`, new URLSearchParams({
         client_id: this.TICKTICK_CLIENT_ID,
         client_secret: this.TICKTICK_CLIENT_SECRET,
         grant_type: 'refresh_token',
@@ -32,7 +34,9 @@ export class TickTickService {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Authorization': `Basic ${encoded}`
-        }
+        },
+        timeout: 10000,
+        httpsAgent: ipv4Agent,
       });
 
       const data = res.data;
@@ -71,9 +75,10 @@ export class TickTickService {
     this.logger.log('Starting sync...');
     const accessToken = await this.getValidAccessToken();
     const headers = { 'Authorization': `Bearer ${accessToken}` };
+    const reqCfg = { headers, httpsAgent: ipv4Agent };
     
     // Step 1: List all named projects
-    const projRes = await axios.get('https://api.ticktick.com/open/v1/project', { headers });
+    const projRes = await axios.get(`${this.TICKTICK_API_URL}/open/v1/project`, reqCfg);
     const projects: any[] = projRes.data;
 
     const taskMap = new Map<string, any>();
@@ -93,7 +98,7 @@ export class TickTickService {
     // Step 2: Per-project active tasks
     for (const project of projects) {
       try {
-        const dataRes = await axios.get(`https://api.ticktick.com/open/v1/project/${project.id}/data`, { headers });
+        const dataRes = await axios.get(`${this.TICKTICK_API_URL}/open/v1/project/${project.id}/data`, reqCfg);
         addTasks(`Project "${project.name}"`, dataRes.data.tasks || []);
       } catch (e: any) {
         this.logger.warn(`Project "${project.name}" failed: ${e.response?.status} ${e.response?.data?.errorMessage || e.message}`);
@@ -104,7 +109,7 @@ export class TickTickService {
     let inboxFetched = false;
     for (const inboxId of ['INBOX', 'inbox']) {
       try {
-        const r = await axios.get(`https://api.ticktick.com/open/v1/project/${inboxId}/data`, { headers });
+        const r = await axios.get(`${this.TICKTICK_API_URL}/open/v1/project/${inboxId}/data`, reqCfg);
         const tasks: any[] = r.data.tasks || [];
         addTasks(`Inbox (id="${inboxId}")`, tasks);
         if (tasks.length > 0) { inboxFetched = true; break; }
@@ -117,9 +122,9 @@ export class TickTickService {
       const from = new Date(now.getFullYear() - 2, 0, 1).toISOString();
       const to = new Date(now.getFullYear() + 1, 11, 31).toISOString();
       const r = await axios.post(
-        'https://api.ticktick.com/open/v1/task/completed',
+        `${this.TICKTICK_API_URL}/open/v1/task/completed`,
         { from, to, limit: 1000 },
-        { headers }
+        reqCfg
       );
       const completedTasks: any[] = Array.isArray(r.data) ? r.data : (r.data?.tasks || []);
       addTasks('Completed tasks', completedTasks);

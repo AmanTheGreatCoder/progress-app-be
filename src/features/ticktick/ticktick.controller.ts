@@ -3,6 +3,11 @@ import type { Response } from 'express';
 import { TickTickService } from './ticktick.service';
 import { PrismaService } from '../../prisma/prisma.service';
 import axios from 'axios';
+import * as https from 'https';
+
+// Force IPv4 — WSL2 often has broken IPv6 routing which causes Node.js ETIMEDOUT
+// even when curl (IPv4) works fine.
+const ipv4Agent = new https.Agent({ family: 4 });
 
 @Controller('api')
 export class TickTickController {
@@ -11,7 +16,7 @@ export class TickTickController {
   constructor(
     private tickTickService: TickTickService,
     private prisma: PrismaService,
-  ) {}
+  ) { }
 
   @Get('ticktick/status')
   async getStatus() {
@@ -24,7 +29,7 @@ export class TickTickController {
   getAuthUrl() {
     const clientId = process.env.TICKTICK_CLIENT_ID;
     const redirectUri = process.env.TICKTICK_REDIRECT_URI;
-    const url = `https://ticktick.com/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri!)}&scope=tasks:read`;
+    const url = `${process.env.TICKTICK_OAUTH_URL}/oauth/authorize?client_id=${clientId}&response_type=code&redirect_uri=${encodeURIComponent(redirectUri!)}&scope=tasks:read`;
     return { url };
   }
 
@@ -39,8 +44,8 @@ export class TickTickController {
       const clientSecret = process.env.TICKTICK_CLIENT_SECRET!;
       const redirectUri = process.env.TICKTICK_REDIRECT_URI!;
       const encoded = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-      
-      const response = await axios.post('https://ticktick.com/oauth/token', new URLSearchParams({
+
+      const response = await axios.post(`${process.env.TICKTICK_OAUTH_URL}/oauth/token`, new URLSearchParams({
         client_id: clientId,
         client_secret: clientSecret,
         grant_type: 'authorization_code',
@@ -51,7 +56,9 @@ export class TickTickController {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
           'Authorization': `Basic ${encoded}`
-        }
+        },
+        timeout: 10000,
+        httpsAgent: ipv4Agent,
       });
 
       const data = response.data;
@@ -65,16 +72,14 @@ export class TickTickController {
 
       return res.redirect(process.env.FRONTEND_URL!);
     } catch (err: any) {
-      let errDetails = 'Unknown Error';
-      if (err.response) {
-        errDetails = `Status ${err.response.status} - Data: ${typeof err.response.data === 'object' ? JSON.stringify(err.response.data) : err.response.data}`;
-      } else {
-        errDetails = err.message || String(err);
-      }
-      this.logger.error('TickTick OAuth Error Details:', errDetails);
+      const isTimeout = err.code === 'ETIMEDOUT' || err.code === 'ECONNABORTED';
+      const detail = isTimeout
+        ? 'Connection to ticktick.com timed out (IPv4 forced — check WSL firewall or DNS).'
+        : err.response?.data ? JSON.stringify(err.response.data) : err.message;
+      this.logger.error(`TickTick OAuth error (${err.code ?? 'unknown'}): ${detail}`);
       return res.status(HttpStatus.INTERNAL_SERVER_ERROR).send(`
         <h2>Error exchanging token</h2>
-        <pre style="background:#f4f4f4;padding:10px;border-radius:5px;white-space:pre-wrap;">${errDetails}</pre>
+        <pre style="background:#f4f4f4;padding:10px;border-radius:5px;white-space:pre-wrap;">${detail}</pre>
       `);
     }
   }
@@ -84,8 +89,15 @@ export class TickTickController {
     try {
       return await this.tickTickService.sync();
     } catch (err: any) {
-      this.logger.error('[TickTick Sync] Error:', err.response?.data || err.message);
-      throw new HttpException({ error: err.response?.data || err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+      const errData = err.response?.data || err.message;
+      this.logger.error(`[TickTick Sync] Error: ${typeof errData === 'object' ? JSON.stringify(errData) : errData}`);
+
+      // If it's an auth error, delete the token so the user can reconnect
+      if (err.response?.status === 401 || errData?.error === 'invalid_grant') {
+        await this.prisma.tickTickAuth.deleteMany();
+      }
+
+      throw new HttpException({ error: errData }, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }
