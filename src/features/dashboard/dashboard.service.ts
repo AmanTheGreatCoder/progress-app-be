@@ -7,13 +7,13 @@ import { aggregateDailyScores, calculateStreak, calculateTagBreakdown } from '..
 export class DashboardService {
   constructor(
     private prisma: PrismaService,
-    private goalsService: GoalsService
+    private goalsService: GoalsService,
   ) {}
 
-  async getDashboard(dateQuery?: string) {
+  async getDashboard(userId: string, dateQuery?: string) {
     const viewDate = dateQuery || new Date().toISOString().split('T')[0];
 
-    const tasks = await this.prisma.task.findMany();
+    const tasks = await this.prisma.task.findMany({ where: { userId } });
     const dailyScores = aggregateDailyScores(tasks);
     const currentScore = dailyScores[viewDate] || 0;
     const streak = calculateStreak(dailyScores, 20);
@@ -22,7 +22,7 @@ export class DashboardService {
     const viewTasks = tasks.filter(t => t.date === viewDate);
     const completedTasks = viewTasks.filter(t => t.completed);
     const incompleteTasks = viewTasks.filter(t => !t.completed);
-    
+
     const viewDone = completedTasks.length;
     const totalView = viewTasks.length;
     const completionPct = totalView > 0 ? Math.round((viewDone / totalView) * 100) : 0;
@@ -46,13 +46,13 @@ export class DashboardService {
       maxDayScore,
       targetPoints: 120,
       completedTasks,
-      incompleteTasks
+      incompleteTasks,
     };
   }
 
-  async getAnalytics() {
-    const goalsStats = await this.goalsService.getAllGoals();
-    
+  async getAnalytics(userId: string) {
+    const goalsStats = await this.goalsService.getAllGoals(userId);
+
     const avgCompletion = goalsStats.length > 0
       ? Math.round(goalsStats.reduce((acc: number, g: any) => acc + g.pct, 0) / goalsStats.length)
       : 0;

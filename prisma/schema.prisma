@@ -6,6 +6,15 @@ datasource db {
   provider = "postgresql"
 }
 
+model User {
+  id        String   @id @default(uuid())
+  googleId  String   @unique
+  email     String   @unique
+  name      String
+  picture   String   @default("")
+  createdAt DateTime @default(now())
+}
+
 model Task {
   id                String   @id
   name              String
@@ -22,6 +31,7 @@ model Task {
   minVersion        String   @default("")
   completedMin      Boolean  @default(false)
   lastSyncedAt      DateTime @default(now()) @updatedAt
+  userId            String?
 }
 
 model TickTickAuth {
@@ -68,6 +78,7 @@ model Goal {
   linkedRecurringNames String       @default("") // legacy: JSON array of series names
   targetCount          Int          @default(0)  // 0 = derive from duration
   createdAt            String       // YYYY-MM-DD
+  userId               String?
   logs                 GoalLog[]
   linkedSeries         GoalSeries[]
 }

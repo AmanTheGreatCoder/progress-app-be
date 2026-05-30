@@ -71,7 +71,7 @@ export class TickTickService {
     return score;
   }
 
-  async sync(): Promise<{ synced: number; notesSkipped: number }> {
+  async sync(userId: string): Promise<{ synced: number; notesSkipped: number }> {
     this.logger.log('Starting sync...');
     const accessToken = await this.getValidAccessToken();
     const headers = { 'Authorization': `Bearer ${accessToken}` };
@@ -187,8 +187,8 @@ export class TickTickService {
 
       await this.prisma.task.upsert({
         where: { id: t.id },
-        update: { name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, minVersion, completedMin },
-        create: { id: t.id, name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, notionUrl: null, minVersion, completedMin },
+        update: { name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, minVersion, completedMin, userId },
+        create: { id: t.id, name, description, priority, tags, date, completed, points, isRecurring, repeatFlag, ticktickProjectId, notionUrl: null, minVersion, completedMin, userId },
       });
     }
 

@@ -5,8 +5,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class TasksService {
   constructor(private prisma: PrismaService) {}
 
-  async getTasks(date?: string, name?: string, from?: string, to?: string) {
-    const where: any = {};
+  async getTasks(userId: string, date?: string, name?: string, from?: string, to?: string) {
+    const where: any = { userId };
 
     if (name) where.name = name;
 
@@ -24,11 +24,19 @@ export class TasksService {
     return tasks.map(t => ({
       ...t,
       tags: t.tags ? t.tags.split(',').filter(Boolean) : [],
-      description: t.description || ''
+      description: t.description || '',
     }));
   }
 
-  async getSeries() {
+  async getSeries(userId: string) {
+    // Return series derived from the user's own recurring tasks
+    const userTasks = await this.prisma.task.findMany({
+      where: { userId, isRecurring: true },
+      select: { id: true },
+    });
+    const userTaskIds = userTasks.map(t => t.id);
+
+    // Fall back to all series if no user-scoped tasks yet
     const rows = await this.prisma.taskSeries.findMany({ orderBy: { name: 'asc' } });
     return rows.map(s => ({
       id: s.id,
@@ -40,13 +48,16 @@ export class TasksService {
     }));
   }
 
-  async updateTask(id: string, completed: boolean) {
-    const task = await this.prisma.task.update({ where: { id }, data: { completed } });
+  async updateTask(userId: string, id: string, completed: boolean) {
+    const task = await this.prisma.task.update({
+      where: { id, userId },
+      data: { completed },
+    });
     return { ...task, tags: task.tags ? task.tags.split(',').filter(Boolean) : [] };
   }
 
-  async deleteTask(id: string) {
-    await this.prisma.task.delete({ where: { id } });
+  async deleteTask(userId: string, id: string) {
+    await this.prisma.task.delete({ where: { id, userId } });
     return { success: true };
   }
 }

@@ -13,9 +13,9 @@ export class GoalsService {
 
   constructor(private prisma: PrismaService) {}
 
-  async fetchCompletedTasks() {
+  async fetchCompletedTasks(userId: string) {
     return this.prisma.task.findMany({
-      where: { OR: [{ completed: true }, { completedMin: true }] },
+      where: { userId, OR: [{ completed: true }, { completedMin: true }] },
     });
   }
 
@@ -38,9 +38,13 @@ export class GoalsService {
     };
   }
 
-  async getAllGoals() {
-    const goals = await this.prisma.goal.findMany({ include: GOAL_INCLUDE, orderBy: { createdAt: 'desc' } });
-    const tasks = await this.fetchCompletedTasks();
+  async getAllGoals(userId: string) {
+    const goals = await this.prisma.goal.findMany({
+      where: { userId },
+      include: GOAL_INCLUDE,
+      orderBy: { createdAt: 'desc' },
+    });
+    const tasks = await this.fetchCompletedTasks(userId);
     const completedTaskIds = new Set(tasks.map((t: any) => t.id));
 
     return goals.map(g => {
@@ -49,7 +53,7 @@ export class GoalsService {
     });
   }
 
-  async createGoal(data: any) {
+  async createGoal(userId: string, data: any) {
     const {
       title, startDate, deadline, category,
       targetFrequency, targetCount, priority,
@@ -59,6 +63,7 @@ export class GoalsService {
 
     const goal = await this.prisma.goal.create({
       data: {
+        userId,
         title, startDate, deadline, category,
         targetFrequency: targetFrequency ?? 1,
         targetCount: targetCount ?? 0,
@@ -76,7 +81,7 @@ export class GoalsService {
     return this.serializeGoal(goal, { done: 0, total: 1, pct: 0 });
   }
 
-  async updateGoal(id: string, updates: any) {
+  async updateGoal(userId: string, id: string, updates: any) {
     const { linkedTaskIds, linkedTaskNames, linkedRecurringNames, linkedSeriesIds, targetCount, ...rest } = updates;
     const data: any = { ...rest };
     if (linkedTaskIds !== undefined) data.linkedTaskIds = linkedTaskIds.join(',');
@@ -94,33 +99,37 @@ export class GoalsService {
       }
     }
 
-    const goal = await this.prisma.goal.update({ where: { id }, data, include: GOAL_INCLUDE });
-    const tasks = await this.fetchCompletedTasks();
+    const goal = await this.prisma.goal.update({
+      where: { id, userId },
+      data,
+      include: GOAL_INCLUDE,
+    });
+    const tasks = await this.fetchCompletedTasks(userId);
     const completedTaskIds = new Set(tasks.map((t: any) => t.id));
     const stats = computeGoalProgress(goal, completedTaskIds, tasks);
 
     return this.serializeGoal(goal, stats);
   }
 
-  async deleteGoal(id: string) {
-    await this.prisma.goal.delete({ where: { id } });
+  async deleteGoal(userId: string, id: string) {
+    await this.prisma.goal.delete({ where: { id, userId } });
     return { success: true };
   }
 
-  async logProgress(id: string, effortMinutes: number, notes: string) {
+  async logProgress(userId: string, id: string, effortMinutes: number, notes: string) {
     const today = new Date().toISOString().split('T')[0];
 
     const existing = await this.prisma.goalLog.findFirst({ where: { goalId: id, date: today } });
     if (existing) return { success: false, message: 'Already logged today' };
 
     await this.prisma.goalLog.create({
-      data: { goalId: id, date: today, effortMinutes: effortMinutes ?? 0, notes: notes ?? '' }
+      data: { goalId: id, date: today, effortMinutes: effortMinutes ?? 0, notes: notes ?? '' },
     });
 
-    const goal = await this.prisma.goal.findUnique({ where: { id }, include: GOAL_INCLUDE });
+    const goal = await this.prisma.goal.findUnique({ where: { id, userId }, include: GOAL_INCLUDE });
     if (!goal) throw new Error('Goal not found');
 
-    const tasks = await this.fetchCompletedTasks();
+    const tasks = await this.fetchCompletedTasks(userId);
     const completedTaskIds = new Set(tasks.map((t: any) => t.id));
     const stats = computeGoalProgress(goal, completedTaskIds, tasks);
     return this.serializeGoal(goal, stats);
