@@ -34,6 +34,17 @@ export class TasksController {
     }
   }
 
+  @Get('bulk')
+  async getBulkTasks(@Req() req: Request, @Query('ids') ids: string) {
+    try {
+      const userId = (req as any).userId as string;
+      const idArray = ids ? ids.split(',').filter(Boolean) : [];
+      return await this.tasksService.getTasksByIds(userId, idArray);
+    } catch (err: any) {
+      throw new HttpException({ error: err.message }, HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+  }
+
   @Patch(':id')
   async updateTask(
     @Req() req: Request,

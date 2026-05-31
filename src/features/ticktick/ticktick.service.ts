@@ -233,6 +233,34 @@ export class TickTickService {
       this.logger.warn('TaskSeries rebuild failed:', seriesErr.message);
     }
 
+    // Step 7: Generate debug log file
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      const logsDir = path.join(process.cwd(), 'logs');
+      if (!fs.existsSync(logsDir)) {
+        fs.mkdirSync(logsDir, { recursive: true });
+      }
+      const nowStr = new Date().toISOString().replace(/[:.]/g, '-');
+      const logPath = path.join(logsDir, `ticktick-sync-${nowStr}.log`);
+      
+      let logContent = `TickTick Sync Debug Log\nGenerated : ${new Date().toISOString()}\n`;
+      logContent += `Total tasks (deduplicated) : ${allTasks.length}\n`;
+      logContent += `Tasks to save (excl. notes): ${tasksToSave.length}\n`;
+      logContent += `Notes skipped              : ${notes.length}\n\n`;
+      logContent += `════════════════════════════════════════════════════════════════\n  PROJECTS\n════════════════════════════════════════════════════════════════\n\n`;
+      for (const p of projects) {
+        logContent += `  • "${p.name}"  id=${p.id}  closed=${p.closed}\n`;
+      }
+      logContent += `\n════════════════════════════════════════════════════════════════\n  ALL TASKS\n════════════════════════════════════════════════════════════════\n\n`;
+      logContent += JSON.stringify(allTasks, null, 2) + '\n';
+      
+      fs.writeFileSync(logPath, logContent, 'utf-8');
+      this.logger.log(`Wrote debug log to ${logPath}`);
+    } catch (logErr: any) {
+      this.logger.warn(`Failed to write debug log: ${logErr.message}`);
+    }
+
     this.logger.log(`Done. ${tasksToSave.length} tasks synced, ${notes.length} notes skipped.`);
     return { synced: tasksToSave.length, notesSkipped: notes.length };
   }

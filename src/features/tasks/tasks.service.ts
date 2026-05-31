@@ -60,4 +60,17 @@ export class TasksService {
     await this.prisma.task.delete({ where: { id, userId } });
     return { success: true };
   }
+
+  async getTasksByIds(userId: string, ids: string[]) {
+    if (!ids || ids.length === 0) return [];
+    const tasks = await this.prisma.task.findMany({
+      where: { userId, id: { in: ids } },
+      orderBy: { date: 'asc' },
+    });
+    return tasks.map(t => ({
+      ...t,
+      tags: t.tags ? t.tags.split(',').filter(Boolean) : [],
+      description: t.description || '',
+    }));
+  }
 }

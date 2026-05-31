@@ -100,32 +100,38 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
     ? goal.linkedTaskIds.split(',').filter(Boolean)
     : [];
 
-  let done: number;
+  let done = 0;
+  const matchedTaskIds = new Set<string>();
 
-  if (linkedRecurring.length > 0 && allTasks) {
-    done = allTasks.filter(t =>
-      (t.completed || t.completedMin) &&
-      linkedRecurring.some((n: string) => norm(n) === norm(t.name || '')) &&
-      t.date >= goal.startDate &&
-      t.date <= goal.deadline
-    ).length;
-  } else if (linkedNames.length > 0 && allTasks) {
-    done = allTasks.filter(t =>
-      (t.completed || t.completedMin) &&
-      linkedNames.some((n: string) => norm(n) === norm(t.name || '')) &&
-      t.date >= goal.startDate &&
-      t.date <= goal.deadline
-    ).length;
-  } else if (linkedIds.length > 0) {
-    done = linkedIds.filter((id: string) => completedTaskIds.has(id)).length;
-  } else {
-    done = goal.logs ? goal.logs.length : 0;
+  if (allTasks) {
+    allTasks.forEach(t => {
+      if (!(t.completed || t.completedMin)) return;
+      if (goal.startDate && t.date < goal.startDate) return;
+      if (goal.deadline && t.date > goal.deadline) return;
+
+      if (
+        (linkedRecurring.length > 0 && linkedRecurring.some((n: string) => norm(n) === norm(t.name || ''))) ||
+        (linkedNames.length > 0 && linkedNames.some((n: string) => norm(n) === norm(t.name || '')))
+      ) {
+        matchedTaskIds.add(t.id);
+      }
+    });
   }
 
-  const hasLinkedTasks =
-    linkedRecurring.length > 0 ||
-    linkedNames.length > 0 ||
-    linkedIds.length > 0;
+  if (linkedIds.length > 0) {
+    linkedIds.forEach(id => {
+      if (completedTaskIds.has(id)) {
+        matchedTaskIds.add(id);
+      }
+    });
+  }
+
+  const hasLinkedTasks = linkedRecurring.length > 0 || linkedNames.length > 0 || linkedIds.length > 0;
+
+  done = matchedTaskIds.size;
+  if (done === 0 && !hasLinkedTasks) {
+    done = goal.logs ? goal.logs.length : 0;
+  }
 
   let total = 1;
   if (goal.targetCount && goal.targetCount > 0) {
@@ -136,7 +142,11 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
     const days  = Math.ceil((end - start) / 86400000) + 1;
 
     if (hasLinkedTasks) {
-      total = Math.max(days, 1);
+      if (linkedIds.length > 0 && linkedRecurring.length === 0 && linkedNames.length === 0) {
+        total = Math.max(linkedIds.length, 1);
+      } else {
+        total = Math.max(days, 1);
+      }
     } else {
       const totalWeeks = days > 0 ? days / 7 : 0;
       total = Math.max(Math.ceil(totalWeeks * (goal.targetFrequency || 7)), 1);
@@ -145,5 +155,5 @@ export const computeGoalProgress = (goal: any, completedTaskIds: Set<string>, al
     total = Math.max(linkedIds.length, 1);
   }
 
-  return { done, total, pct: Math.min(Math.round(done / total * 100), 100) };
+  return { done, total, pct: Math.min(Math.round((done / total) * 100), 100) };
 };
